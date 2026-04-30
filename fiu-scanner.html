@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>FIU — Check-In Scanner</title>
+<meta name="theme-color" content="#0A0A0A" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, getDoc, updateDoc, deleteDoc, collection, getDocs, serverTimestamp, writeBatch }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey:            "AIzaSyAWmz9j8u7i7jGVSiGaILv5O9K8gIo0d_M",
+    authDomain:        "fiu26-5b48e.firebaseapp.com",
+    projectId:         "fiu26-5b48e",
+    storageBucket:     "fiu26-5b48e.firebasestorage.app",
+    messagingSenderId: "245845622438",
+    appId:             "1:245845622438:web:7bdcd79755b9a9eb04fe67"
+  };
+
+  const app  = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
+  const provider = new GoogleAuthProvider();
+
+  window.__SCAN__ = { auth, db, provider, signInWithPopup, signOut,
+                      onAuthStateChanged, doc, getDoc, updateDoc, deleteDoc,
+                      collection, getDocs, serverTimestamp, writeBatch };
+</script>
+
+<style>
+  :root {
+    --bg:        #0A0A0A;
+    --surface:   #141414;
+    --surface2:  #1E1E1E;
+    --border:    #2A2A2A;
+    --peach:     #FFF5EE;
+    --gold:      #C9924A;
+    --gold-dim:  rgba(201,146,74,.15);
+    --green:     #10B981;
+    --green-dim: rgba(16,185,129,.12);
+    --red:       #EF4444;
+    --red-dim:   rgba(239,68,68,.12);
+    --text:      #F5F0EB;
+    --muted:     #6B6560;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+  /* ── LOGIN ── */
+  #login-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; gap: 2rem; text-align: center; }
+  .login-logo h1 { font-family: 'Cormorant Garamond', serif; font-size: 3.5rem; font-weight: 300; color: var(--peach); line-height: 1; }
+  .login-logo .sub { font-size: .75rem; letter-spacing: .35em; text-transform: uppercase; color: var(--muted); margin-top: .4rem; }
+  .admin-badge { background: var(--gold-dim); border: 1px solid var(--gold); color: var(--gold); font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: .3rem .9rem; border-radius: 100px; display: inline-block; margin-bottom: .75rem; }
+  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 2rem; width: 100%; max-width: 340px; }
+  .login-card p { font-size: .85rem; color: var(--muted); margin-bottom: 1.5rem; line-height: 1.6; }
+  .google-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: .75rem; background: var(--peach); color: #1a1a1a; border: none; padding: .9rem 1.5rem; border-radius: 12px; font-size: .92rem; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all .2s; }
+  .google-btn:active { transform: scale(.97); }
+  .google-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .access-denied { background: var(--red-dim); border: 1px solid var(--red); border-radius: 12px; padding: 1rem; margin-top: 1rem; font-size: .83rem; color: var(--red); display: none; line-height: 1.5; }
+
+  /* ── APP ── */
+  #app { display: none; flex-direction: column; min-height: 100vh; }
+  #app.visible { display: flex; }
+  .top-bar { padding: .9rem 1.25rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 10; }
+  .brand { font-family: 'Cormorant Garamond', serif; font-size: 1.3rem; font-weight: 600; color: var(--peach); }
+  .brand span { color: var(--gold); }
+  .top-right { display: flex; align-items: center; gap: .65rem; }
+  .admin-pill { background: var(--gold-dim); border: 1px solid var(--gold); color: var(--gold); font-size: .65rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: .2rem .6rem; border-radius: 100px; }
+  .logout-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-size: .75rem; padding: .3rem .75rem; border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .tab { flex: 1; padding: .85rem; text-align: center; font-size: .82rem; font-weight: 500; color: var(--muted); cursor: pointer; border: none; background: none; font-family: 'DM Sans', sans-serif; border-bottom: 2px solid transparent; transition: all .2s; }
+  .tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+
+  .content { flex: 1; overflow-y: auto; }
+  .view { display: none; padding: 1.25rem; }
+  .view.active { display: block; animation: fadeUp .25s ease; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── SCAN HERO ── */
+  .scan-hero { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 2rem 1.5rem; text-align: center; margin-bottom: 1.25rem; }
+  .scan-icon-big { font-size: 4.5rem; margin-bottom: 1rem; line-height: 1; }
+  .scan-hero h2 { font-family: 'Cormorant Garamond', serif; font-size: 1.9rem; font-weight: 300; margin-bottom: .5rem; }
+  .scan-hero p { font-size: .83rem; color: var(--muted); line-height: 1.6; margin-bottom: 1.75rem; }
+  #qr-input { display: none; }
+  .scan-btn { width: 100%; padding: 1.1rem; background: var(--gold); border: none; border-radius: 16px; color: #0A0A0A; font-size: 1rem; font-weight: 700; cursor: pointer; font-family: 'DM Sans', sans-serif; display: flex; align-items: center; justify-content: center; gap: .6rem; letter-spacing: .01em; transition: all .15s; }
+  .scan-btn:active { transform: scale(.97); }
+  .scan-btn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+  /* ── HOW IT WORKS ── */
+  .how-title { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .75rem; }
+  .how-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1rem 1.1rem; margin-bottom: .6rem; display: flex; align-items: flex-start; gap: .85rem; }
+  .how-num { width: 26px; height: 26px; border-radius: 50%; background: var(--gold-dim); border: 1px solid var(--gold); color: var(--gold); font-size: .75rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: .05rem; }
+  .how-text h4 { font-size: .86rem; font-weight: 600; margin-bottom: .18rem; }
+  .how-text p  { font-size: .76rem; color: var(--muted); line-height: 1.5; }
+
+  /* ── PROCESSING ── */
+  .processing { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 2.5rem 1.5rem; text-align: center; display: none; margin-bottom: 1rem; }
+  .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 1rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .processing p { font-size: .85rem; color: var(--muted); }
+
+  /* ── RESULT ── */
+  .result-card { border-radius: 20px; padding: 1.75rem 1.5rem; margin-bottom: 1rem; border: 1px solid; text-align: center; display: none; animation: popIn .35s cubic-bezier(.175,.885,.32,1.275); }
+  @keyframes popIn { from { transform: scale(.88); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .result-card.success { background: var(--green-dim); border-color: var(--green); }
+  .result-card.error   { background: var(--red-dim);   border-color: var(--red); }
+  .result-card.already { background: var(--gold-dim);  border-color: var(--gold); }
+  .result-card.warning { background: rgba(201,146,74,.12); border-color: var(--gold); }
+  .r-label { font-size: .7rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: .4rem; }
+  .r-label.success { color: var(--green); }
+  .r-label.error   { color: var(--red); }
+  .r-label.already { color: var(--gold); }
+  .r-label.warning { color: var(--gold); }
+  .r-icon { font-size: 3.5rem; margin-bottom: .5rem; line-height: 1; }
+  .r-name { font-family: 'Cormorant Garamond', serif; font-size: 2rem; font-weight: 600; line-height: 1.1; margin-bottom: .35rem; }
+  .r-meta { font-size: .78rem; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .r-warning-msg { font-size: .85rem; color: var(--gold); margin-top: .75rem; line-height: 1.55; font-weight: 500; }
+  .next-btn { width: 100%; margin-top: 1.25rem; padding: .8rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; color: var(--text); font-size: .88rem; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: border-color .2s; }
+  .next-btn:hover { border-color: var(--gold); }
+  .paid-action-btn { width: 100%; margin-top: .75rem; padding: .85rem; background: var(--green); border: none; border-radius: 12px; color: #0A0A0A; font-size: .95rem; font-weight: 700; cursor: pointer; font-family: 'DM Sans', sans-serif; letter-spacing: .04em; transition: opacity .2s; }
+  .paid-action-btn:active { opacity: .8; }
+
+  /* ── ATTENDANCE ROLE TOGGLE ── */
+  .role-toggle { display: flex; gap: .5rem; margin-bottom: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: .3rem; }
+  .role-toggle-btn { flex: 1; padding: .5rem; border-radius: 10px; border: none; background: none; color: var(--muted); font-size: .8rem; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all .2s; letter-spacing: .02em; }
+  .role-toggle-btn.active { background: var(--gold); color: #0A0A0A; }
+
+  /* ── ATTENDANCE ── */
+  .att-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .att-header h2 { font-family: 'Cormorant Garamond', serif; font-size: 1.6rem; font-weight: 300; }
+  .refresh-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); font-size: .78rem; padding: .4rem .9rem; border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+
+  .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .65rem; margin-bottom: 1.25rem; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: .9rem; text-align: center; }
+  .stat-num { font-family: 'Cormorant Garamond', serif; font-size: 2rem; font-weight: 600; line-height: 1; }
+  .stat-num.green { color: var(--green); }
+  .stat-num.gold  { color: var(--gold); }
+  .stat-lbl { font-size: .65rem; color: var(--muted); margin-top: .2rem; text-transform: uppercase; letter-spacing: .06em; }
+
+  .search-wrap { position: relative; margin-bottom: .85rem; }
+  .search-wrap input { width: 100%; padding: .65rem .9rem .65rem 2.4rem; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: .85rem; outline: none; }
+  .search-wrap input::placeholder { color: var(--muted); }
+  .search-wrap input:focus { border-color: var(--gold); }
+  .s-icon { position: absolute; left: .75rem; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+
+  .filter-tabs { display: flex; gap: .5rem; margin-bottom: 1rem; }
+  .filter-tab { padding: .35rem .9rem; border-radius: 100px; font-size: .75rem; font-weight: 500; border: 1px solid var(--border); background: none; color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all .15s; }
+  .filter-tab.active { background: var(--gold); border-color: var(--gold); color: #0A0A0A; font-weight: 700; }
+
+  .att-item { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: .85rem 1rem; margin-bottom: .6rem; display: flex; align-items: center; gap: .85rem; position: relative; }
+  .av { width: 38px; height: 38px; border-radius: 10px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-family: 'Cormorant Garamond', serif; font-size: 1.1rem; font-weight: 600; color: var(--gold); flex-shrink: 0; overflow: hidden; }
+  .av img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; display: block; }
+  .att-info { flex: 1; min-width: 0; }
+  .att-info h4 { font-size: .88rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .att-info p  { font-size: .73rem; color: var(--muted); margin-top: .1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .checkin-time { font-size: .68rem; color: var(--green); font-family: 'DM Mono', monospace; margin-top: .15rem; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dot.present { background: var(--green); box-shadow: 0 0 6px rgba(16,185,129,.6); }
+  .dot.absent  { background: var(--border); }
+
+  /* ── THREE-DOT MENU ── */
+  .three-dot-btn { background: none; border: none; color: var(--muted); font-size: 1.25rem; padding: .25rem .4rem; cursor: pointer; line-height: 1; border-radius: 6px; flex-shrink: 0; transition: background .15s; }
+  .three-dot-btn:active { background: var(--surface2); }
+  .ctx-menu { position: absolute; right: .75rem; top: 3rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; z-index: 50; min-width: 170px; box-shadow: 0 8px 24px rgba(0,0,0,.5); overflow: hidden; animation: fadeUp .15s ease; }
+  .ctx-menu button { display: block; width: 100%; text-align: left; padding: .75rem 1rem; background: none; border: none; color: var(--text); font-size: .83rem; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: background .15s; }
+  .ctx-menu button:hover { background: var(--border); }
+
+  /* ── CONFIRMATION MODAL ── */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 100; display: flex; align-items: flex-end; justify-content: center; animation: fadeBg .2s ease; }
+  @keyframes fadeBg { from { opacity: 0; } to { opacity: 1; } }
+  .modal-sheet { background: var(--surface); border: 1px solid var(--border); border-radius: 24px 24px 0 0; padding: 1.75rem 1.5rem 2.5rem; width: 100%; max-width: 480px; animation: slideUp .25s ease; }
+  @keyframes slideUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .modal-title { font-family: 'Cormorant Garamond', serif; font-size: 1.4rem; font-weight: 600; margin-bottom: .4rem; }
+  .modal-sub { font-size: .83rem; color: var(--muted); line-height: 1.5; margin-bottom: 1.5rem; }
+  .modal-actions { display: flex; flex-direction: column; gap: .65rem; }
+  .modal-confirm { padding: .9rem; border: none; border-radius: 14px; font-size: .92rem; font-weight: 700; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: opacity .15s; }
+  .modal-confirm.mark-present { background: var(--green); color: #0A0A0A; }
+  .modal-confirm.mark-absent  { background: var(--red-dim); border: 1px solid var(--red); color: var(--red); }
+  .modal-cancel { padding: .8rem; background: none; border: 1px solid var(--border); border-radius: 14px; font-size: .88rem; font-weight: 500; cursor: pointer; color: var(--muted); font-family: 'DM Sans', sans-serif; }
+
+  .loader { display: flex; justify-content: center; padding: 2.5rem; }
+  .spinner-sm { width: 26px; height: 26px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin .7s linear infinite; }
+  .empty { text-align: center; padding: 2.5rem 1rem; color: var(--muted); font-size: .88rem; }
+
+  /* ── QR CAMERA SCANNER ── */
+  #qr-reader-wrap { width: 100%; margin-bottom: 1.25rem; border-radius: 18px; overflow: hidden; border: 1px solid var(--border); background: var(--surface2); }
+  #qr-reader { width: 100%; }
+
+  /* Override html5-qrcode default styles to match dark theme */
+  #qr-reader > * { font-family: 'DM Sans', sans-serif !important; }
+  #qr-reader__header_message { display: none !important; }
+  #qr-reader__status_span { font-size: .78rem !important; color: var(--muted) !important; font-family: 'DM Sans', sans-serif !important; }
+  #qr-reader__dashboard { background: var(--surface2) !important; padding: .85rem 1rem !important; border-top: 1px solid var(--border) !important; }
+  #qr-reader__dashboard_section_csr > button,
+  #qr-reader__dashboard_section_swaplink { font-family: 'DM Sans', sans-serif !important; font-size: .8rem !important; font-weight: 600 !important; border-radius: 10px !important; padding: .45rem 1rem !important; cursor: pointer !important; transition: all .15s !important; }
+  #qr-reader__dashboard_section_csr > button { background: var(--gold) !important; color: #0A0A0A !important; border: none !important; }
+  #qr-reader__dashboard_section_swaplink { background: none !important; color: var(--muted) !important; border: 1px solid var(--border) !important; text-decoration: none !important; display: inline-block !important; }
+  #qr-reader__dashboard_section_swaplink:hover { color: var(--gold) !important; border-color: var(--gold) !important; }
+  #qr-reader__camera_selection { width: 100% !important; background: var(--surface) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 10px !important; padding: .45rem .75rem !important; font-family: 'DM Sans', sans-serif !important; font-size: .82rem !important; outline: none !important; margin-bottom: .5rem !important; }
+  #qr-reader__filescan_input { display: none !important; }
+  #qr-reader img[alt="Info icon"] { display: none !important; }
+  #qr-reader__scan_region { background: #000 !important; }
+  #qr-reader__scan_region img { display: none !important; }
+
+  /* Scanner state pill shown above the viewer */
+  .scanner-status { display: flex; align-items: center; gap: .55rem; padding: .55rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); font-size: .75rem; color: var(--muted); font-weight: 500; }
+  .scanner-status .dot-live { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(16,185,129,.7); flex-shrink: 0; }
+  .scanner-status .dot-idle { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+
+  .scan-btn svg { stroke-linecap: round; stroke-linejoin: round; }
+
+  .toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: .6rem 1.4rem; border-radius: 100px; font-size: .82rem; opacity: 0; transition: all .3s; pointer-events: none; z-index: 200; white-space: nowrap; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ── VOLUNTEER PILL ── */
+  .volunteer-pill { background: rgba(16,185,129,.15); border: 1px solid var(--green); color: var(--green); font-size: .65rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: .2rem .6rem; border-radius: 100px; }
+
+  /* ── MADE WITH LOVE ── */
+  .mwl { display: flex; align-items: center; justify-content: center; gap: .4rem; padding: 1.2rem 1rem .6rem; font-size: .82rem; color: var(--muted); }
+  .mwl a { color: var(--muted); text-decoration: none; display: flex; align-items: center; gap: .3rem; transition: color .2s; }
+  .mwl a:hover { color: var(--gold); }
+  .mwl svg { width: 16px; height: 16px; }
+
+  /* ── SUPER ADMIN PANEL ── */
+  #superAdminPanel { display:none; }
+  #superAdminPanel.open { display:block; }
+  .sa-wrap { padding: 1.25rem; }
+  .sa-title { font-family: 'Cormorant Garamond', serif; font-size: 1.6rem; font-weight: 300; color: var(--peach); margin-bottom: 1rem; }
+  .sa-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .4rem; }
+  .sa-input { width: 100%; padding: .7rem 1rem; border-radius: 12px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: .88rem; outline: none; margin-bottom: .75rem; transition: border-color .2s; }
+  .sa-input:focus { border-color: var(--gold); }
+  .sa-btn { width: 100%; padding: .8rem; border: none; border-radius: 12px; font-size: .9rem; font-weight: 700; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: opacity .2s; margin-bottom: .5rem; }
+  .sa-btn.primary { background: var(--gold); color: #0A0A0A; }
+  .sa-btn.danger  { background: var(--red-dim); border: 1px solid var(--red); color: var(--red); }
+  .sa-result { margin-top: .75rem; }
+  .sa-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 1.1rem; }
+  .sa-role-row { display: flex; gap: .4rem; margin-top: .75rem; }
+  .sa-role-btn { flex: 1; padding: .5rem .3rem; border-radius: 10px; border: 1px solid var(--border); background: none; color: var(--muted); font-size: .75rem; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all .2s; }
+  .sa-role-btn.active-attendee { background: rgba(201,146,74,.2); border-color: var(--gold); color: var(--gold); }
+  .sa-role-btn.active-volunteer { background: rgba(16,185,129,.15); border-color: var(--green); color: var(--green); }
+  .sa-role-btn.active-admin { background: rgba(251,191,36,.15); border-color: #FBBF24; color: #FBBF24; }
+
+  /* ── PROFILE POPUP ── */
+  .profile-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 300; display: none; align-items: flex-end; justify-content: center; }
+  .profile-overlay.open { display: flex; }
+  .profile-sheet { background: var(--surface); border: 1px solid var(--border); border-radius: 24px 24px 0 0; padding: 1.75rem 1.5rem 2.5rem; width: 100%; max-width: 480px; animation: slideUp .25s ease; }
+  .profile-avatar { width: 72px; height: 72px; border-radius: 16px; overflow: hidden; margin: 0 auto 1rem; display: flex; align-items: center; justify-content: center; background: var(--surface2); font-family: 'Cormorant Garamond', serif; font-size: 2rem; color: var(--gold); }
+  .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .profile-name { font-family: 'Cormorant Garamond', serif; font-size: 1.5rem; font-weight: 600; text-align: center; margin-bottom: .2rem; }
+  .profile-email { font-size: .78rem; color: var(--muted); text-align: center; margin-bottom: 1.1rem; }
+  .profile-row { display: flex; align-items: center; gap: .75rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: .75rem 1rem; margin-bottom: .5rem; }
+  .profile-row-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); flex: 1; }
+  .profile-row-val { font-size: .83rem; font-weight: 600; text-align: right; }
+  .profile-row-val.present { color: var(--green); }
+  .profile-row-val.absent { color: var(--muted); }
+  .profile-close { width: 100%; padding: .8rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; color: var(--text); font-size: .88rem; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; margin-top: .85rem; }
+
+  /* ── MARK ALL ABSENT ── */
+  .danger-zone { background: var(--red-dim); border: 1px solid var(--red); border-radius: 14px; padding: 1rem; margin-bottom: 1rem; }
+  .danger-zone-title { font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--red); margin-bottom: .4rem; }
+  .mark-all-btn { width: 100%; padding: .7rem; border: 1px solid var(--red); background: none; border-radius: 10px; color: var(--red); font-size: .85rem; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background .2s; }
+  .mark-all-btn:hover { background: var(--red-dim); }
+  .phrase-input { width: 100%; padding: .65rem .9rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-family: 'DM Mono', monospace; font-size: .82rem; outline: none; margin: .6rem 0; transition: border-color .2s; }
+  .phrase-input:focus { border-color: var(--red); }
+  .phrase-input.valid { border-color: var(--green); }
+</style>
+</head>
+<body>
+
+<!-- ══ LOGIN ══ -->
+<div id="login-screen">
+  <div class="login-logo">
+    <div class="admin-badge">Admin &amp; Volunteer</div>
+    <h1>FIU<br>Scanner</h1>
+    <p class="sub">Check-In System · 2026</p>
+  </div>
+  <div class="login-card">
+    <p>Sign in with your admin or volunteer Google account to access the check-in scanner and live attendance dashboard.</p>
+    <button class="google-btn" id="loginBtn">
+      <svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Continue with Google
+    </button>
+    <div class="access-denied" id="accessDenied">⛔ Access denied — admin or volunteer account required.</div>
+  </div>
+  <div class="mwl">
+    made with love by
+    <a href="https://instagram.com/jash_malhotraa" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+      jm
+    </a>
+  </div>
+</div>
+
+<!-- ══ APP ══ -->
+<div id="app">
+  <header class="top-bar">
+    <div class="brand">FI<span>U</span> Scanner</div>
+    <div class="top-right">
+      <span id="rolePill" class="admin-pill">Admin</span>
+      <button class="logout-btn" id="logoutBtn">Sign out</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="scanner">📷 Check-In</button>
+    <button class="tab" data-tab="attendance">📋 Attendance</button>
+    <button class="tab" data-tab="superadmin" id="superAdminTab" style="display:none">⚡ Super</button>
+  </div>
+
+  <div class="content">
+
+    <!-- SCANNER -->
+    <div class="view active" id="view-scanner">
+
+      <div class="processing" id="processing">
+        <div class="spinner"></div>
+        <p>Checking in attendee…</p>
+      </div>
+
+      <div class="result-card" id="resultCard">
+        <div class="r-label" id="rLabel"></div>
+        <div class="r-icon"  id="rIcon"></div>
+        <div class="r-name"  id="rName"></div>
+        <div class="r-meta"  id="rMeta"></div>
+        <div class="r-warning-msg" id="rWarningMsg" style="display:none"></div>
+        <button class="paid-action-btn" id="paidActionBtn" style="display:none" onclick="markOnSpotPaid()">✓ PAID</button>
+        <button class="next-btn" onclick="resetScan()">↩ Check In Next Attendee</button>
+      </div>
+
+      <div id="scanHero">
+        <div class="scan-hero" id="scanIdle">
+          <div class="scan-icon-big">🎟️</div>
+          <h2>Scan QR Code</h2>
+          <p>Point your camera at the attendee's QR code. It will be detected automatically.</p>
+
+          <!-- Camera scanner -->
+          <div id="qr-reader-wrap">
+            <div class="scanner-status" id="scannerStatus">
+              <span class="dot-idle" id="scannerDot"></span>
+              <span id="scannerStatusText">Camera off — tap Start to scan</span>
+            </div>
+            <div id="qr-reader"></div>
+          </div>
+
+          <!-- Start / Stop toggle -->
+          <button class="scan-btn" id="toggleScanBtn" onclick="toggleScanner()">
+            <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            Start Camera
+          </button>
+        </div>
+        <div class="mwl">
+          made with love by
+          <a href="https://instagram.com/jash_malhotraa" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+            jm
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ATTENDANCE -->
+    <div class="view" id="view-attendance">
+      <div class="att-header">
+        <h2>Attendance</h2>
+        <button class="refresh-btn" onclick="loadAttendance()">↻ Refresh</button>
+      </div>
+
+      <!-- Role toggle -->
+      <div class="role-toggle">
+        <button class="role-toggle-btn active" id="roleToggleAttendees" onclick="setRoleView('attendee', this)">👥 Attendees</button>
+        <button class="role-toggle-btn" id="roleToggleAdmins" onclick="setRoleView('staff', this)">🔑 Staff</button>
+      </div>
+
+      <!-- Admin-only: Mark All Absent -->
+      <div class="danger-zone" id="dangerZone" style="display:none">
+        <div class="danger-zone-title">⚠️ Danger Zone</div>
+        <button class="mark-all-btn" onclick="openMarkAllAbsent()">🗑 Mark Everyone Absent</button>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-num" id="statTotal">—</div><div class="stat-lbl">Total</div></div>
+        <div class="stat-card"><div class="stat-num green" id="statPresent">—</div><div class="stat-lbl">Present</div></div>
+        <div class="stat-card"><div class="stat-num gold"  id="statPct">—</div><div class="stat-lbl">Rate</div></div>
+      </div>
+      <div class="search-wrap">
+        <svg class="s-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="attSearch" placeholder="Search by name or email…" oninput="renderAttendees(this.value)" />
+      </div>
+      <div class="filter-tabs">
+        <button class="filter-tab active" onclick="setFilter('all',this)">All</button>
+        <button class="filter-tab" onclick="setFilter('present',this)">Present</button>
+        <button class="filter-tab" onclick="setFilter('absent',this)">Absent</button>
+      </div>
+      <div id="att-list"><div class="loader"><div class="spinner-sm"></div></div></div>
+    </div>
+
+    <!-- SUPER ADMIN -->
+    <div class="view" id="view-superadmin">
+      <div class="sa-wrap">
+        <div class="sa-title">⚡ Super Admin</div>
+        <div class="sa-label">Lookup user by email</div>
+        <input class="sa-input" id="saEmailInput" type="email" placeholder="user@example.com" />
+        <button class="sa-btn primary" onclick="saLookup()">🔍 Search User</button>
+        <div class="sa-result" id="saResult"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- PROFILE POPUP -->
+<div class="profile-overlay" id="profileOverlay">
+  <div class="profile-sheet">
+    <div class="profile-avatar" id="profileAv"></div>
+    <div class="profile-name"  id="profileName"></div>
+    <div class="profile-email" id="profileEmail"></div>
+    <div id="profileRows"></div>
+    <button class="profile-close" onclick="closeProfile()">Close</button>
+  </div>
+</div>
+
+<!-- CONFIRMATION MODAL -->
+<div class="modal-overlay" id="confirmModal" style="display:none" onclick="closeModal(event)">
+  <div class="modal-sheet">
+    <div class="modal-title" id="modalTitle"></div>
+    <div class="modal-sub" id="modalSub"></div>
+    <div class="modal-actions">
+      <button class="modal-confirm" id="modalConfirmBtn" onclick="executeModalAction()"></button>
+      <button class="modal-cancel" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- MARK ALL ABSENT MODAL -->
+<div class="modal-overlay" id="markAllModal" style="display:none" onclick="if(event.target===this)closeMarkAllModal()">
+  <div class="modal-sheet" id="markAllSheet">
+    <div class="modal-title" id="markAllTitle">Mark Everyone Absent?</div>
+    <div class="modal-sub" id="markAllSub">This will reset attendance for all users across both days. This cannot be undone.</div>
+    <div class="modal-actions" id="markAllActions">
+      <button class="modal-confirm mark-absent" onclick="showMarkAllPhrase()">⚠️ Continue</button>
+      <button class="modal-cancel" onclick="closeMarkAllModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+
+<script>
+let currentUser    = null;
+let currentUserRole = null; // 'admin' | 'volunteer'
+let allAttendees   = [];
+let currentFilter  = 'all';
+let currentRoleView = 'attendee';
+let pendingOnSpotUid = null;
+let pendingModalAction = null;
+let activeCtxMenu  = null;
+
+window.addEventListener('load', () => setTimeout(initApp, 400));
+
+function initApp() {
+  const S = window.__SCAN__;
+  if (!S) { showToast('Firebase not ready'); return; }
+
+  S.onAuthStateChanged(S.auth, async user => {
+    if (user) {
+      try {
+        const snap = await S.getDoc(S.doc(S.db, 'Users', user.uid));
+        const role = snap.exists() ? snap.data().role : null;
+        if (role !== 'admin' && role !== 'volunteer') {
+          document.getElementById('accessDenied').style.display = 'block';
+          await S.signOut(S.auth);
+          return;
+        }
+        currentUserRole = role;
+      } catch(e) { showToast('Role check failed'); return; }
+      currentUser = user;
+      // Update role pill
+      const pill = document.getElementById('rolePill');
+      if (currentUserRole === 'volunteer') {
+        pill.className = 'volunteer-pill';
+        pill.textContent = 'Volunteer';
+      } else {
+        pill.className = 'admin-pill';
+        pill.textContent = 'Admin';
+      }
+      // Super admin tab
+      if (user.email === 'jash2607@gmail.com') {
+        document.getElementById('superAdminTab').style.display = 'flex';
+      }
+      // Danger zone only for admins
+      document.getElementById('dangerZone').style.display = currentUserRole === 'admin' ? 'block' : 'none';
+
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app').classList.add('visible');
+      loadAttendance();
+    } else {
+      currentUser = null;
+      currentUserRole = null;
+      document.getElementById('login-screen').style.display = 'flex';
+      document.getElementById('app').classList.remove('visible');
+    }
+  });
+
+  document.getElementById('loginBtn').onclick  = () =>
+    S.signInWithPopup(S.auth, S.provider).catch(() => showToast('Login failed'));
+  document.getElementById('logoutBtn').onclick = () => {
+    stopScanner();
+    S.signOut(S.auth);
+  };
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
+
+  document.addEventListener('click', e => {
+    if (activeCtxMenu && !activeCtxMenu.contains(e.target)) {
+      activeCtxMenu.remove();
+      activeCtxMenu = null;
+    }
+  });
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+  document.getElementById('view-' + tab).classList.add('active');
+  if (tab === 'attendance') loadAttendance();
+}
+
+function showProcessing(on) {
+  document.getElementById('processing').style.display = on ? 'block' : 'none';
+  document.getElementById('scanHero').style.display   = on ? 'none'  : 'block';
+}
+
+/* ━━━ PROCESS QR ━━━ */
+async function processQR(raw) {
+  let data;
+  try { data = JSON.parse(raw); }
+  catch(e) {
+    showResult('error', '⚠️', 'Invalid QR Format', 'Raw: ' + raw.slice(0, 120));
+    return;
+  }
+
+  if (!data.uid || (data.event !== 'FIU-2025' && data.event !== 'FIU-2026')) {
+    showResult('error', '⚠️', 'Wrong QR Code', 'Got: ' + JSON.stringify(data).slice(0, 120));
+    return;
+  }
+
+  const S = window.__SCAN__;
+  showProcessing(true);
+  try {
+    const snap = await S.getDoc(S.doc(S.db, 'Users', data.uid));
+    if (!snap.exists()) {
+      showProcessing(false);
+      showResult('error', '❌', 'Not Registered', 'User not found in the system.');
+      return;
+    }
+
+    const user = snap.data();
+
+    // ── Check paid field ──
+    const paid = (user.paid || '').trim();
+
+    if (paid === 'waitingForApproval') {
+      showProcessing(false);
+      showResultWithWarning(
+        'warning', '❗️',
+        user.name || data.name,
+        user.email || '',
+        'Please approve their payment from the main FIU app & retry.',
+        false, null
+      );
+      return;
+    }
+
+    if (paid === 'onSpot') {
+      showProcessing(false);
+      pendingOnSpotUid = data.uid;
+      showResultWithWarning(
+        'warning', '❗️',
+        user.name || data.name,
+        user.email || '',
+        'Please collect money / UPI from the participant.',
+        true, data.uid
+      );
+      return;
+    }
+
+    // paid === 'yes' (or any other value — proceed normally)
+    if (user.present) {
+      const t = user.checkedInAt?.toDate ? formatTime(user.checkedInAt.toDate()) : 'earlier';
+      showProcessing(false);
+      showResult('already', '🔁', user.name || data.name, `Already checked in at ${t}`);
+      showSelections(user);
+      return;
+    }
+
+    await S.updateDoc(S.doc(S.db, 'Users', data.uid), {
+      present: true, checkedInAt: S.serverTimestamp()
+    });
+
+    showProcessing(false);
+    showResult('success', '✅', user.name || data.name, user.email || '');
+    showSelections(user);
+    if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+    loadAttendance();
+
+  } catch(e) {
+    showProcessing(false);
+    showResult('error', '⚠️', 'Database Error', e.message);
+  }
+}
+
+/* ━━━ MARK ON-SPOT AS PAID ━━━ */
+async function markOnSpotPaid() {
+  if (!pendingOnSpotUid) return;
+  const S = window.__SCAN__;
+  const btn = document.getElementById('paidActionBtn');
+  btn.textContent = '…';
+  btn.disabled = true;
+  try {
+    await S.updateDoc(S.doc(S.db, 'Users', pendingOnSpotUid), {
+      paid: 'yes',
+      present: true,
+      checkedInAt: S.serverTimestamp()
+    });
+    if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+    // Refresh the result card to success
+    const snap = await S.getDoc(S.doc(S.db, 'Users', pendingOnSpotUid));
+    const u = snap.data();
+    pendingOnSpotUid = null;
+    showResult('success', '✅', u.name || 'Attendee', u.email || '');
+    loadAttendance();
+  } catch(e) {
+    showToast('Error: ' + e.message);
+    btn.textContent = '✓ PAID';
+    btn.disabled = false;
+  }
+}
+
+/* ━━━ RESULT ━━━ */
+function showResult(type, icon, name, meta) {
+  const labels = { success: '✓ Checked In', error: 'Error', already: 'Already Checked In', warning: 'Action Required' };
+  document.getElementById('rLabel').textContent = labels[type] || type;
+  document.getElementById('rLabel').className   = 'r-label ' + type;
+  document.getElementById('rIcon').textContent  = icon;
+  document.getElementById('rName').textContent  = name;
+  document.getElementById('rMeta').textContent  = meta;
+  document.getElementById('rWarningMsg').style.display = 'none';
+  document.getElementById('paidActionBtn').style.display = 'none';
+  const card = document.getElementById('resultCard');
+  card.className     = 'result-card ' + type;
+  card.style.display = 'block';
+  document.getElementById('scanHero').style.display    = 'none';
+  document.getElementById('processing').style.display  = 'none';
+}
+
+function showResultWithWarning(type, icon, name, meta, warningMsg, showPaidBtn, uid) {
+  showResult(type, icon, name, meta);
+  const wm = document.getElementById('rWarningMsg');
+  wm.textContent = warningMsg;
+  wm.style.display = 'block';
+  const pb = document.getElementById('paidActionBtn');
+  if (showPaidBtn) {
+    pb.style.display = 'block';
+    pb.textContent = '✓ PAID';
+    pb.disabled = false;
+  } else {
+    pb.style.display = 'none';
+  }
+}
+
+function showSelections(user) {
+  // Remove any existing selections block
+  const old = document.getElementById('selectionsBlock');
+  if (old) old.remove();
+  if (!user.workshop && !user.competition) return;
+  const block = document.createElement('div');
+  block.id = 'selectionsBlock';
+  block.style.cssText = 'margin-top:.85rem;text-align:left;background:rgba(201,146,74,.08);border:1px solid rgba(201,146,74,.3);border-radius:12px;padding:.85rem 1rem';
+  block.innerHTML = `
+    <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--gold);font-weight:700;margin-bottom:.5rem">Selections</div>
+    ${user.workshop    ? `<div style="font-size:.8rem;margin-bottom:.3rem"><span style="color:var(--muted)">Workshop:</span> <strong>${esc(user.workshop)}</strong></div>` : ''}
+    ${user.competition ? `<div style="font-size:.8rem"><span style="color:var(--muted)">Competition:</span> <strong>${esc(user.competition)}</strong></div>` : ''}`;
+  document.getElementById('resultCard').insertBefore(block, document.querySelector('.next-btn'));
+}
+
+function resetScan() {
+  document.getElementById('resultCard').style.display = 'none';
+  document.getElementById('scanHero').style.display   = 'block';
+  document.getElementById('processing').style.display = 'none';
+  document.getElementById('rWarningMsg').style.display = 'none';
+  document.getElementById('paidActionBtn').style.display = 'none';
+  const sb = document.getElementById('selectionsBlock'); if (sb) sb.remove();
+  pendingOnSpotUid = null;
+  // Resume scanner if it was running
+  if (html5Scanner) {
+    // Small delay so the hero is visible before camera re-activates
+    setTimeout(() => {
+      if (!scannerRunning) toggleScanner();
+    }, 300);
+  }
+}
+
+/* ━━━ ROLE VIEW TOGGLE ━━━ */
+function setRoleView(role, btn) {
+  currentRoleView = role;
+  document.querySelectorAll('.role-toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Reset filter & search
+  currentFilter = 'all';
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector('.filter-tab').classList.add('active');
+  document.getElementById('attSearch').value = '';
+  loadAttendance();
+}
+
+/* ━━━ ATTENDANCE ━━━ */
+async function loadAttendance() {
+  const S = window.__SCAN__;
+  if (!S || !currentUser) return;
+  document.getElementById('att-list').innerHTML =
+    '<div class="loader"><div class="spinner-sm"></div></div>';
+  try {
+    const snap = await S.getDocs(S.collection(S.db, 'Users'));
+    allAttendees = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(u => {
+        if (currentRoleView === 'staff') return u.role === 'admin' || u.role === 'volunteer';
+        return u.role === 'attendee'; // default attendee view
+      })
+      .sort((a, b) => (a.name||'').localeCompare(b.name||''));
+    const total   = allAttendees.length;
+    const present = allAttendees.filter(a => a.present).length;
+    document.getElementById('statTotal').textContent   = total;
+    document.getElementById('statPresent').textContent = present;
+    document.getElementById('statPct').textContent     = total ? Math.round(present/total*100)+'%' : '0%';
+    renderAttendees(document.getElementById('attSearch').value);
+  } catch(e) {
+    document.getElementById('att-list').innerHTML =
+      '<div class="empty">Failed to load. Check Firestore rules.</div>';
+  }
+}
+
+function renderAttendees(q) {
+  q = (q || '').toLowerCase();
+  let list = [...allAttendees];
+  if (currentFilter === 'present') list = list.filter(a => a.present);
+  if (currentFilter === 'absent')  list = list.filter(a => !a.present);
+  if (q) list = list.filter(a =>
+    (a.name||'').toLowerCase().includes(q) || (a.email||'').toLowerCase().includes(q));
+  const el = document.getElementById('att-list');
+  if (!list.length) { el.innerHTML = '<div class="empty">No attendees found</div>'; return; }
+  el.innerHTML = list.map(a => `
+    <div class="att-item" id="attitem-${esc(a.id)}">
+      <div class="av">${a.photoURL ? `<img src="${esc(a.photoURL)}" alt="${esc((a.name||'?')[0].toUpperCase())}" onerror="this.parentElement.innerHTML='${(a.name||'?')[0].toUpperCase()}'" loading="lazy">` : (a.name||'?')[0].toUpperCase()}</div>
+      <div class="att-info">
+        <h4>${esc(a.name||'Unknown')}</h4>
+        <p>${esc(a.email||'')}</p>
+        ${a.present && a.checkedInAt?.toDate
+          ? `<div class="checkin-time">✓ ${formatTime(a.checkedInAt.toDate())}</div>` : ''}
+        ${a.workshop    ? `<div style="font-size:.67rem;color:var(--gold);margin-top:.1rem">🗓 ${esc(a.workshop)}</div>` : ''}
+        ${a.competition ? `<div style="font-size:.67rem;color:var(--gold)">🏆 ${esc(a.competition)}</div>` : ''}
+      </div>
+      <div class="dot ${a.present?'present':'absent'}"></div>
+      <button class="three-dot-btn" onclick="openCtxMenu(event,'${esc(a.id)}',${a.present?'true':'false'},'${esc(a.name||'Unknown')}')">⋮</button>
+    </div>`).join('');
+}
+
+/* ━━━ THREE-DOT CONTEXT MENU ━━━ */
+function openCtxMenu(e, uid, isPresent, name) {
+  e.stopPropagation();
+  if (activeCtxMenu) { activeCtxMenu.remove(); activeCtxMenu = null; }
+
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu';
+
+  // More Info
+  const infoBtn = document.createElement('button');
+  infoBtn.textContent = 'ℹ More Info';
+  infoBtn.onclick = (ev) => {
+    ev.stopPropagation();
+    menu.remove(); activeCtxMenu = null;
+    openProfile(uid);
+  };
+  menu.appendChild(infoBtn);
+
+  if (isPresent) {
+    const btn = document.createElement('button');
+    btn.textContent = '✗ Mark as Absent';
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      menu.remove(); activeCtxMenu = null;
+      openConfirmModal(uid, false, name);
+    };
+    menu.appendChild(btn);
+  } else {
+    const btn = document.createElement('button');
+    btn.textContent = '✓ Mark as Present';
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      menu.remove(); activeCtxMenu = null;
+      openConfirmModal(uid, true, name);
+    };
+    menu.appendChild(btn);
+  }
+
+  const item = document.getElementById('attitem-' + uid);
+  if (item) {
+    item.style.position = 'relative';
+    item.appendChild(menu);
+  }
+  activeCtxMenu = menu;
+}
+
+/* ━━━ CONFIRMATION MODAL ━━━ */
+function openConfirmModal(uid, markPresent, name) {
+  pendingModalAction = { uid, markPresent };
+  document.getElementById('modalTitle').textContent = markPresent
+    ? `Mark as Present?`
+    : `Mark as Absent?`;
+  document.getElementById('modalSub').textContent = markPresent
+    ? `This will mark ${name} as present in Firebase.`
+    : `This will mark ${name} as absent in Firebase.`;
+  const confirmBtn = document.getElementById('modalConfirmBtn');
+  confirmBtn.textContent = markPresent ? '✓ Yes, Mark Present' : '✗ Yes, Mark Absent';
+  confirmBtn.className = 'modal-confirm ' + (markPresent ? 'mark-present' : 'mark-absent');
+  document.getElementById('confirmModal').style.display = 'flex';
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('confirmModal')) return;
+  document.getElementById('confirmModal').style.display = 'none';
+  pendingModalAction = null;
+}
+
+async function executeModalAction() {
+  if (!pendingModalAction) return;
+  const { uid, markPresent } = pendingModalAction;
+  document.getElementById('confirmModal').style.display = 'none';
+  pendingModalAction = null;
+
+  const S = window.__SCAN__;
+  try {
+    const updateData = { present: markPresent };
+    if (markPresent) {
+      updateData.checkedInAt = S.serverTimestamp();
+    } else {
+      updateData.checkedInAt = null;
+    }
+    await S.updateDoc(S.doc(S.db, 'Users', uid), updateData);
+    showToast(markPresent ? '✓ Marked as present' : '✓ Marked as absent');
+    loadAttendance();
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  renderAttendees(document.getElementById('attSearch').value);
+}
+
+/* ━━━ PROFILE POPUP ━━━ */
+async function openProfile(uid) {
+  const S = window.__SCAN__;
+  let user = allAttendees.find(a => a.id === uid);
+  if (!user) {
+    try {
+      const snap = await S.getDoc(S.doc(S.db, 'Users', uid));
+      if (snap.exists()) user = { id: uid, ...snap.data() };
+    } catch(e) { showToast('Could not load profile'); return; }
+  }
+  if (!user) { showToast('User not found'); return; }
+
+  const av = document.getElementById('profileAv');
+  av.innerHTML = user.photoURL
+    ? `<img src="${esc(user.photoURL)}" alt="${esc((user.name||'?')[0])}">`
+    : (user.name||'?')[0].toUpperCase();
+
+  document.getElementById('profileName').textContent  = user.name  || 'Unknown';
+  document.getElementById('profileEmail').textContent = user.email || '';
+
+  const checkinTime = user.present && user.checkedInAt?.toDate
+    ? formatTime(user.checkedInAt.toDate()) : null;
+
+  document.getElementById('profileRows').innerHTML = `
+    <div class="profile-row">
+      <span class="profile-row-label">Status</span>
+      <span class="profile-row-val ${user.present ? 'present' : 'absent'}">${user.present ? '● Present' : '○ Absent'}</span>
+    </div>
+    ${checkinTime ? `<div class="profile-row"><span class="profile-row-label">Checked In At</span><span class="profile-row-val">${checkinTime}</span></div>` : ''}
+    ${user.workshop ? `<div class="profile-row"><span class="profile-row-label">Workshop</span><span class="profile-row-val" style="max-width:55%;text-align:right">${esc(user.workshop)}</span></div>` : ''}
+    ${user.competition ? `<div class="profile-row"><span class="profile-row-label">Competition</span><span class="profile-row-val" style="max-width:55%;text-align:right">${esc(user.competition)}</span></div>` : ''}
+    <div class="profile-row"><span class="profile-row-label">Role</span><span class="profile-row-val">${esc(user.role || 'attendee')}</span></div>`;
+
+  document.getElementById('profileOverlay').classList.add('open');
+}
+
+function closeProfile() {
+  document.getElementById('profileOverlay').classList.remove('open');
+}
+document.addEventListener('click', e => {
+  const overlay = document.getElementById('profileOverlay');
+  if (overlay && e.target === overlay) closeProfile();
+});
+
+/* ━━━ MARK ALL ABSENT ━━━ */
+function openMarkAllAbsent() {
+  document.getElementById('markAllTitle').textContent = 'Mark Everyone Absent?';
+  document.getElementById('markAllSub').textContent   = 'This will reset attendance for ALL users (attendees, volunteers, admins) across both days. This cannot be undone.';
+  document.getElementById('markAllActions').innerHTML = `
+    <button class="modal-confirm mark-absent" onclick="showMarkAllPhrase()">⚠️ Continue</button>
+    <button class="modal-cancel" onclick="closeMarkAllModal()">Cancel</button>`;
+  document.getElementById('markAllModal').style.display = 'flex';
+}
+
+function showMarkAllPhrase() {
+  document.getElementById('markAllTitle').textContent = 'Confirm Phrase';
+  document.getElementById('markAllSub').textContent   = 'To proceed, type exactly:';
+  document.getElementById('markAllActions').innerHTML = `
+    <p style="font-family:'DM Mono',monospace;font-size:.88rem;color:var(--gold);text-align:center;margin-bottom:.3rem">mark all absent</p>
+    <input class="phrase-input" id="markAllPhraseInput" type="text" placeholder="Type the phrase above…" oninput="checkPhrase(this)" autocomplete="off" />
+    <button class="modal-confirm mark-absent" id="markAllConfirmBtn" disabled onclick="executeMarkAllAbsent()" style="opacity:.4">🗑 Mark All Absent</button>
+    <button class="modal-cancel" onclick="closeMarkAllModal()">Cancel</button>`;
+  setTimeout(() => { const i = document.getElementById('markAllPhraseInput'); if(i) i.focus(); }, 100);
+}
+
+function checkPhrase(input) {
+  const valid = input.value === 'mark all absent';
+  input.className = 'phrase-input' + (valid ? ' valid' : '');
+  const btn = document.getElementById('markAllConfirmBtn');
+  btn.disabled = !valid;
+  btn.style.opacity = valid ? '1' : '.4';
+}
+
+async function executeMarkAllAbsent() {
+  const S = window.__SCAN__;
+  closeMarkAllModal();
+  showToast('Marking everyone absent…');
+  try {
+    const snap = await S.getDocs(S.collection(S.db, 'Users'));
+    const batch = S.writeBatch(S.db);
+    snap.docs.forEach(d => {
+      batch.update(S.doc(S.db, 'Users', d.id), { present: false, checkedInAt: null });
+    });
+    await batch.commit();
+    showToast('✓ All attendance reset to absent');
+    loadAttendance();
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+function closeMarkAllModal() {
+  document.getElementById('markAllModal').style.display = 'none';
+}
+
+/* ━━━ SUPER ADMIN ━━━ */
+async function saLookup() {
+  const email = (document.getElementById('saEmailInput').value || '').trim().toLowerCase();
+  if (!email) { showToast('Enter an email first'); return; }
+  const S = window.__SCAN__;
+  const result = document.getElementById('saResult');
+  result.innerHTML = '<div class="loader"><div class="spinner-sm"></div></div>';
+  try {
+    const snap = await S.getDocs(S.collection(S.db, 'Users'));
+    const match = snap.docs.map(d => ({ uid: d.id, ...d.data() }))
+      .find(u => (u.email||'').toLowerCase() === email);
+    if (!match) {
+      result.innerHTML = `<div style="text-align:center;padding:1.5rem;color:var(--muted);font-size:.88rem">No user found with that email.</div>`;
+      return;
+    }
+    const role = match.role || 'attendee';
+    const initials = (match.name||match.email||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    const roleColors = { admin: '#FBBF24', attendee: 'var(--gold)', volunteer: 'var(--green)' };
+    const roleLabels = { admin: 'ADMIN', attendee: 'ATTENDEE', volunteer: 'VOLUNTEER' };
+    const rb = (r, icon, label) => {
+      const cls = role === r ? `sa-role-btn active-${r}` : 'sa-role-btn';
+      return `<button class="${cls}" onclick="saSetRole('${match.uid}','${r}')">${icon} ${label}</button>`;
+    };
+    result.innerHTML = `
+      <div class="sa-card">
+        <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.85rem">
+          <div style="width:44px;height:44px;border-radius:10px;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-size:1.2rem;color:var(--gold);flex-shrink:0">${esc(initials)}</div>
+          <div>
+            <div style="font-weight:600;font-size:.92rem">${esc(match.name||'—')}</div>
+            <div style="font-size:.74rem;color:var(--muted)">${esc(match.email)}</div>
+            <span style="font-size:.65rem;font-weight:700;letter-spacing:.06em;color:${roleColors[role]||roleColors.attendee}">${roleLabels[role]||'ATTENDEE'}</span>
+          </div>
+        </div>
+        <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:.4rem">Set Role</div>
+        <div class="sa-role-row">
+          ${rb('attendee','👤','Attendee')}
+          ${rb('volunteer','🙋','Volunteer')}
+          ${rb('admin','⭐','Admin')}
+        </div>
+        <button class="sa-btn danger" style="margin-top:.75rem" onclick="saRemoveUser('${match.uid}','${esc(match.name||match.email)}')">🗑 Remove User</button>
+      </div>`;
+  } catch(e) {
+    result.innerHTML = `<div style="text-align:center;padding:1rem;color:var(--red);font-size:.85rem">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function saSetRole(uid, newRole) {
+  const S = window.__SCAN__;
+  try {
+    await S.updateDoc(S.doc(S.db, 'Users', uid), { role: newRole });
+    showToast(`Role set to ${newRole}`);
+    saLookup();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function saRemoveUser(uid, name) {
+  if (!confirm(`Permanently remove "${name}"? This cannot be undone.`)) return;
+  const S = window.__SCAN__;
+  try {
+    await S.deleteDoc(S.doc(S.db, 'Users', uid));
+    showToast('User removed');
+    document.getElementById('saResult').innerHTML = '';
+    document.getElementById('saEmailInput').value = '';
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+/* ━━━ QR CAMERA SCANNER ━━━ */
+let html5Scanner = null;
+let scannerRunning = false;
+let lastScannedText = '';
+let scanCooldown = false;
+
+function setScannerStatus(live, text) {
+  const dot  = document.getElementById('scannerDot');
+  const span = document.getElementById('scannerStatusText');
+  if (!dot || !span) return;
+  dot.className  = live ? 'dot-live' : 'dot-idle';
+  span.textContent = text;
+}
+
+function toggleScanner() {
+  if (scannerRunning) {
+    stopScanner();
+  } else {
+    startScanner();
+  }
+}
+
+function startScanner() {
+  if (scannerRunning) return;
+
+  if (!html5Scanner) {
+    html5Scanner = new Html5Qrcode('qr-reader');
+  }
+
+  const config = {
+    fps: 12,
+    qrbox: (vw, vh) => {
+      const side = Math.round(Math.min(vw, vh) * 0.72);
+      return { width: side, height: side };
+    },
+    aspectRatio: 1,
+    rememberLastUsedCamera: true,
+    showTorchButtonIfSupported: true,
+  };
+
+  setScannerStatus(false, 'Starting camera…');
+
+  html5Scanner.start(
+    { facingMode: 'environment' },
+    config,
+    onQrDetected,
+    /* onScanFailure — silent */ () => {}
+  ).then(() => {
+    scannerRunning = true;
+    setScannerStatus(true, 'Camera live — scanning…');
+    const btn = document.getElementById('toggleScanBtn');
+    if (btn) {
+      btn.innerHTML = `<svg viewBox="0 0 24 24" style="width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h.01M10.584 10.587a2 2 0 0 0 2.828 2.83"/><path d="M14 14a4 4 0 0 0-4.581-3.941M9 9a3 3 0 0 1 5.12-2.13"/><path d="M21 6.5V8a2 2 0 0 1-2 2h-.01"/></svg> Stop Camera`;
+    }
+  }).catch(err => {
+    setScannerStatus(false, 'Camera error — check permissions');
+    showToast('Camera error: ' + (err.message || err));
+    html5Scanner = null;
+  });
+}
+
+function stopScanner() {
+  if (!scannerRunning || !html5Scanner) return;
+  html5Scanner.stop().then(() => {
+    scannerRunning = false;
+    setScannerStatus(false, 'Camera off — tap Start to scan');
+    const btn = document.getElementById('toggleScanBtn');
+    if (btn) {
+      btn.innerHTML = `<svg viewBox="0 0 24 24" style="width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Start Camera`;
+    }
+  }).catch(() => {});
+}
+
+function onQrDetected(decodedText) {
+  // Debounce — ignore repeated scans of same code within 3 seconds
+  if (scanCooldown || decodedText === lastScannedText) return;
+  lastScannedText = decodedText;
+  scanCooldown = true;
+  setTimeout(() => { scanCooldown = false; lastScannedText = ''; }, 3000);
+
+  // Pause scanner while processing
+  stopScanner();
+  setScannerStatus(false, 'QR detected — processing…');
+  processQR(decodedText);
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function formatTime(d) { return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+let _tt;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(_tt); _tt = setTimeout(()=>t.classList.remove('show'), 2800);
+}
+</script>
+</body>
+</html>
